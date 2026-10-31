@@ -16,6 +16,12 @@ Talk to the user in their language. Keep answers short.
 - Never put keys, tokens, personal paths or conversation text in tracked files. Personal settings go in `config.json` (git-ignored).
 - Before editing, back up or commit. After editing, run `python -c "import ast;ast.parse(open('bridge.py',encoding='utf-8').read())"` and check the page in a browser.
 
+## Desktop launcher (most users want this)
+- `start.bat` (Windows) = start the bridge if `http://127.0.0.1:8790/` doesn't answer (pythonw, no console), then open Chrome/Edge with `--app=<url>` (no address bar). Desktop shortcut → the file; auto-start → a shortcut in `shell:startup`.
+- **Chrome ignores `--window-position` when the user's normal Chrome is already running** — the new window joins that process. `start.bat` avoids this with its own `--user-data-dir` (`%LOCALAPPDATA%\AIControlCenterApp`). Keep it, or the window lands on the wrong monitor.
+- Second monitor: set `WINPOS` to that monitor's top-left in Windows virtual-desktop coordinates (can be negative, e.g. `-1920,0`) and enable `FULLSCREEN`. Windows display scaling changes the numbers — check the monitor layout before guessing.
+- macOS / Linux: same idea with `open -na "Google Chrome" --args --app=…` or `google-chrome --app=…`, and a login item / autostart entry.
+
 ## Things that are hard to find (read before guessing)
 - **Context %** = last main-thread assistant `usage` in `~/.claude/projects/*/<session>.jsonl`: `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`, divided by `context_window`. Skip `"isSidechain": true`. Running sessions: `~/.claude/sessions/*.json` (`sessionId`, `pid`).
 - **One-click open**: the Claude desktop app keeps `local_*.json` per conversation with `sessionId` (`local_…`), `cliSessionId` (= JSONL file name) and `title`. Open with `claude://code/continue?session=local_…`. On Windows (Store app) the folder is `%LOCALAPPDATA%\Claude-Data\claude_<package>\claude-code-sessions` — it **moved** in an app update (older: `%LOCALAPPDATA%\Packages\Claude_<package>\LocalCache\Roaming\Claude\claude-code-sessions`). If open stops working, search for the folder again. Details: `docs/HOW_IT_WORKS.md`.

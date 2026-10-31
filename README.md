@@ -44,6 +44,17 @@ That is the intended way to use it. Then keep asking — design, layout, which p
 
 Missing or old data shows `—` or `stale`, never invented numbers.
 
+## Keep it on your desktop like a control room
+
+On Windows, double-click **`start.bat`**: it starts the bridge (only if it isn't running yet) and opens the dashboard in its own window without an address bar. Put a shortcut to it on your desktop, or in `shell:startup` to open it every time Windows starts. Window position, size and full screen are three lines at the top of the file.
+
+Or let your AI do it:
+
+```text
+Make AI Control Center a desktop icon. One click should start the bridge and open the dashboard
+full screen on my second monitor in a window without an address bar. Also start it when Windows starts.
+```
+
 ## Manual start
 
 ```bash
