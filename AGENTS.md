@@ -7,7 +7,8 @@ Talk to the user in their language. Keep answers short.
 1. Check what exists before wiring anything: OS, Python 3.9+, `nvidia-smi`, ComfyUI (default `http://127.0.0.1:8188`), Claude Code (`~/.claude/projects`), the Claude desktop app, Codex CLI, other local AI tools the user mentions.
 2. Copy `config.example.json` → `config.json` and **delete the example entries the user doesn't have** (services, processes, `remote_pc`, `backup`). Set `context_window` to the model they use (200000 default, 1000000 for 1M-context models).
 3. Run `python bridge.py`, open `http://127.0.0.1:8790/`, and check every panel against the source (e.g. `nvidia-smi`, the ComfyUI queue). Report what works, what shows `—`, and why.
-4. Ask before turning on opt-in sources: `claude_usage` (undocumented Anthropic endpoint using their own Claude Code login), ElevenLabs (needs `ELEVENLABS_API_KEY` in the environment).
+4. Desktop icon (users expect it): on Windows create a desktop shortcut to `start.bat` (set its icon if you like), click it, and confirm the dashboard opens in an address-bar-free window. On other OSes build the equivalent launcher.
+5. Ask before turning on opt-in sources: `claude_usage` (undocumented Anthropic endpoint using their own Claude Code login), ElevenLabs (needs `ELEVENLABS_API_KEY` in the environment).
 
 ## Hard rules
 - **Never fake data.** Missing → `—` / "not configured". Old → `stale` with its age. No demo numbers in the shipped page.

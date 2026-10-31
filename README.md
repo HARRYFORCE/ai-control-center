@@ -22,8 +22,11 @@ Give the repository to a coding AI that can access files and run tools on your P
 ```text
 Install https://github.com/HARRYFORCE/ai-control-center on my PC. Read the project instructions,
 connect the features my setup supports, and run it. Tell me which items you couldn't connect and why.
+Finally, make a desktop icon that opens it in a window without an address bar.
 I'll change the design and panels to my taste afterwards.
 ```
+
+When it's done you start it from **one desktop icon**: a click opens the control center in its own window without an address bar (the bridge starts by itself when needed).
 
 That is the intended way to use it. Then keep asking — design, layout, which panels exist, what they show, how they warn you: **vibe-code it into your own control center** (Claude and Codex recommended). Nothing here is precious.
 
