@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Control Center</title>
+<!--
+  AI Control Center - one HTML file. Open it through bridge.py (http://127.0.0.1:8790/) to get live data.
+  Opened directly from disk it still renders, and every panel says "bridge not running" instead of showing fake numbers.
+  Made to be edited by AI: ask Claude or Codex to add your own panels, services and thresholds (see docs/).
+-->
+<style>
+  :root {
+    --ice: #91dcff; --violet: #b9a7ff; --amber: #ffc875; --ok: #6ee8bd; --warn: #ffc875; --bad: #ff7197;
+    --txt: #f4f7ff; --dim: #9ea9c9; --line: rgba(157,191,255,.2); --cardline: rgba(157,191,255,.12);
+    --card: linear-gradient(160deg, #121c3e, #0c1530);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #02030a; }
+  body { font-family: "Segoe UI", "Pretendard", "Malgun Gothic", system-ui, sans-serif; color: var(--txt); }
+  .mono { font-family: Consolas, "JetBrains Mono", monospace; letter-spacing: .06em; }
+
+  /* fixed 1360x1300 stage, scaled to fit the window */
+  #stage { position: absolute; left: 50%; top: 50%; width: 1360px; height: 1300px; transform: translate(-50%, -50%) scale(var(--s, 1)); overflow: hidden; isolation: isolate;
+    background:
+      radial-gradient(ellipse 46% 40% at 50% 46%, rgba(81,83,202,.30), transparent 72%),
+      radial-gradient(ellipse 50% 36% at 22% 18%, rgba(35,129,190,.13), transparent 74%),
+      radial-gradient(ellipse 50% 36% at 80% 82%, rgba(120,90,220,.12), transparent 74%),
+      linear-gradient(180deg, #0a0c1d 0%, #050714 62%, #03040c 100%); }
+  #stage::after { content: ""; position: absolute; inset: 12px; pointer-events: none; border: 1px solid rgba(157,191,255,.14); border-radius: 26px; }
+  #fx { position: absolute; inset: 0; width: 1360px; height: 1300px; pointer-events: none; }
+
+  /* header */
+  .brand { position: absolute; top: 22px; left: 34px; display: flex; align-items: center; gap: 13px; }
+  .sigil { width: 38px; height: 38px; position: relative; border-radius: 50%; border: 1px solid rgba(145,220,255,.58); box-shadow: 0 0 24px rgba(145,220,255,.16); }
+  .sigil::before { content: ""; position: absolute; inset: 8px; border: 2px solid var(--violet); border-radius: 50%; box-shadow: 0 0 12px rgba(185,167,255,.56); }
+  .sigil::after { content: ""; position: absolute; left: 18px; top: -6px; width: 1px; height: 50px; background: linear-gradient(transparent, var(--ice), transparent); transform: rotate(38deg); }
+  .overline { color: var(--ice); font: 700 10px Consolas, monospace; letter-spacing: .22em; }
+  .brand b { display: block; margin-top: 3px; font-size: 22px; line-height: 1; letter-spacing: -.02em; }
+  .clock { position: absolute; top: 84px; left: 40px; pointer-events: none; }
+  .ctime { font: 700 54px/1 Consolas, monospace; letter-spacing: .02em; text-shadow: 0 0 22px rgba(145,220,255,.45); }
+  .ctime span { font-size: 30px; color: var(--ice); margin-left: 2px; }
+  .cdate { margin-top: 8px; font-size: 13px; color: var(--dim); letter-spacing: .14em; }
+  .live { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; color: #ddfff3; border: 1px solid rgba(110,232,189,.3); background: rgba(34,88,78,.22); font-size: 12px; }
+  .live i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 9px var(--ok); }
+  .live.off { color: #ffd9e3; border-color: rgba(255,113,151,.5); background: rgba(90,24,48,.35); }
+  .live.off i { background: var(--bad); box-shadow: 0 0 9px var(--bad); }
+
+  /* center: GPU ring */
+  .center { position: absolute; left: 50%; top: 570px; transform: translate(-50%, -50%); width: 620px; height: 620px; }
+  .center svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .spin { transform-origin: 280px 280px; animation: spin 40s linear infinite; }
+  .spin2 { transform-origin: 280px 280px; animation: spin 26s linear infinite reverse; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .core { position: absolute; left: 50%; top: 50%; width: 332px; height: 332px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, rgba(115,136,255,.30) 0%, rgba(57,127,189,.14) 50%, rgba(7,10,24,0) 72%); }
+  .readout { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; width: 300px; }
+  .kind { font-size: 15px; font-weight: 700; color: #d1c5ff; letter-spacing: .12em; }
+  .kind.idle { color: var(--dim); }
+  .pct { font: 800 88px/1 Consolas, monospace; letter-spacing: -.07em; margin: 8px 0 4px; text-shadow: 0 0 28px rgba(145,220,255,.62); }
+  .pct small { font-size: 30px; color: var(--ice); letter-spacing: 0; }
+  .lbl { font-size: 11px; color: var(--dim); letter-spacing: .28em; }
+  .job { margin-top: 13px; font-size: 15px; font-weight: 700; }
+  .eta { margin-top: 6px; font-size: 12px; color: var(--dim); }
+  #arc { transition: stroke-dasharray .8s ease; }
+
+  .stat { position: absolute; top: 150px; transform: translateX(-50%); min-width: 160px; padding: 10px 14px 11px; border-radius: 13px; border: 1px solid var(--line); background: var(--card); text-align: center; }
+  .stat .v { font: 700 26px Consolas, monospace; } .stat .v span { font-size: 14px; color: var(--ice); }
+  .stat .k { font-size: 10px; color: var(--dim); letter-spacing: .2em; margin-top: 2px; }
+  .sbar { height: 6px; margin-top: 7px; border-radius: 999px; background: rgba(140,165,211,.15); overflow: hidden; }
+  .sbar i { display: block; width: 0; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--violet), var(--ice)); transition: width .4s; }
+  .stat.warn .sbar i { background: linear-gradient(90deg, #ad8dff, var(--amber)); } .stat.warn .v { color: var(--amber); }
+  .stat.bad { border-color: rgba(255,113,151,.7); background: linear-gradient(160deg, #3d1830, #22122a); box-shadow: 0 0 16px rgba(255,113,151,.3); }
+  .stat.bad .v { color: #ff8fb0; } .stat.bad .sbar i { background: linear-gradient(90deg, #ff9a6a, var(--bad)); }
+  .s-vram { left: calc(50% - 160px); } .s-temp { left: calc(50% + 160px); }
+
+  .card { border-radius: 15px; border: 1px solid rgba(157,191,255,.16); background: var(--card); }
+  .wave { position: absolute; left: 50%; top: 900px; transform: translateX(-50%); width: 560px; padding: 11px 15px 8px; }
+  .whead { display: flex; justify-content: space-between; color: var(--dim); font-size: 10px; letter-spacing: .14em; }
+  .whead b { color: var(--amber); }
+  .wave svg { width: 100%; height: 90px; display: block; margin-top: 4px; }
+  .ram { position: absolute; left: 50%; top: 1062px; transform: translateX(-50%); width: 560px; padding: 14px 18px 12px; }
+  .rh { display: flex; align-items: baseline; gap: 12px; font-size: 11px; color: var(--ice); letter-spacing: .18em; font-weight: 700; }
+  .rh b { font: 700 24px Consolas, monospace; color: #fff; letter-spacing: 0; } .rh b small { font-size: 13px; color: var(--dim); font-weight: 400; }
+  .rh em { margin-left: auto; font: normal 700 22px Consolas, monospace; color: var(--ice); letter-spacing: 0; }
+  .ram.warn .rh em { color: var(--warn); } .ram.bad .rh em { color: var(--bad); }
+  .rbar { position: relative; height: 14px; border-radius: 999px; background: rgba(140,165,211,.13); margin: 10px 0 7px; overflow: hidden; }
+  .rbar i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, #8da9ff, var(--ice) 72%, var(--warn)); transition: width .6s; }
+  .tick { position: absolute; top: 0; bottom: 0; width: 2px; } .t70 { left: 70%; background: var(--warn); } .t90 { left: 90%; background: var(--bad); }
+  .rf { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); }
+
+  /* side columns */
+  .col { position: absolute; top: 140px; bottom: 120px; width: 330px; display: flex; flex-direction: column; justify-content: center; }
+  .left { left: 34px; } .right { right: 34px; }
+  .title { display: flex; align-items: center; gap: 9px; margin: 24px 0 12px; color: var(--ice); font-size: 11.5px; font-weight: 700; letter-spacing: .15em; }
+  .col > .title:first-child { margin-top: 0; }
+  .title i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--violet); box-shadow: 0 0 8px rgba(185,167,255,.38); }
+  .title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(157,191,255,.26), transparent); }
+
+  .row { display: grid; grid-template-columns: 8px 1fr auto; gap: 11px; align-items: center; padding: 12px 14px; margin-bottom: 8px; border-radius: 11px; background: var(--card); border: 1px solid var(--cardline); }
+  .row .st { width: 8px; height: 30px; border-radius: 999px; background: var(--ok); box-shadow: 0 0 9px rgba(110,232,189,.35); }
+  .row .n { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .n small { display: block; font-size: 12px; font-weight: 400; color: var(--dim); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+  .row .val { font: 700 14px Consolas, monospace; color: var(--ok); white-space: nowrap; text-align: right; }
+  .row.warn .st { background: var(--warn); } .row.warn .val { color: var(--warn); }
+  .row.bad .st { background: var(--bad); } .row.bad .val { color: var(--bad); } .row.bad { border-color: rgba(255,113,151,.4); background: #3a1a30; }
+  .row.off { background: linear-gradient(160deg, #2a2f3d, #1f2330); border-color: rgba(160,170,190,.22); }
+  .row.off .st { background: #6f7e9e; box-shadow: none; } .row.off .val { color: #b4bccc; } .row.off .n { color: #c9cfdb; }
+
+  .sess { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .s1 { height: 46px; padding: 0 10px; border-radius: 10px; background: var(--card); border: 1px solid var(--cardline); font-size: 14px; display: flex; align-items: center; gap: 8px; white-space: nowrap; min-width: 0; }
+  .s1 .nm { overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #6f7e9e; } .dot.work { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .s1 .c { margin-left: auto; font: 700 15px Consolas, monospace; color: #c9d3ee; }
+  .s1.hot { background: linear-gradient(90deg, #5a2440, #3a1d3a); border-color: rgba(255,113,151,.75); box-shadow: 0 0 14px rgba(255,113,151,.28), inset 0 0 10px rgba(255,113,151,.12); font-weight: 700; }
+  .s1.hot .c { color: #fff; font-weight: 800; font-size: 16px; } .s1.hot .c::before { content: "▲ "; color: var(--bad); font-size: 10px; }
+  .empty { grid-column: 1 / -1; padding: 14px; border-radius: 10px; border: 1px dashed var(--line); color: var(--dim); font-size: 12px; text-align: center; }
+  .legend { display: flex; gap: 13px; margin-top: 12px; color: var(--dim); font-size: 10px; }
+  .legend span::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--ok); }
+  .legend span:nth-child(2)::before { background: #6f7e9e; } .legend span.hotlg::before { width: 10px; border-radius: 3px; background: rgba(255,113,151,.6); }
+
+  .sub { padding: 15px 16px; margin-bottom: 11px; border-radius: 12px; background: var(--card); border: 1px solid var(--cardline); }
+  .sub .h { display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; font-weight: 700; }
+  .sub .h b { font: 700 22px Consolas, monospace; } .sub .h .pl { font-size: 10.5px; font-weight: 400; color: var(--dim); margin-left: 6px; }
+  .bar { height: 7px; border-radius: 999px; background: rgba(140,165,211,.13); margin: 9px 0 6px; overflow: hidden; }
+  .bar i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--violet), var(--ice)); transition: width .6s; }
+  .bar i.gold { background: linear-gradient(90deg, #ad8dff, var(--amber)); } .bar i.red { background: linear-gradient(90deg, #ff9a6a, var(--bad)); }
+  .sub .f { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); } .sub .f b { color: #fff; font-family: Consolas, monospace; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+  .na { color: var(--dim); font-size: 12px; margin-top: 6px; }
+  .dl { font-size: 12px; font-weight: 400; color: var(--dim); display: flex; align-items: baseline; gap: 5px; }
+  .num { width: 50px; background: transparent; border: 0; border-bottom: 1px solid rgba(145,220,255,.28); color: #fff; font: 700 20px Consolas, monospace; text-align: right; outline: none; padding: 0 2px; }
+  .num:focus { border-bottom-color: var(--ice); background: rgba(145,220,255,.05); }
+  .mini { display: flex; align-items: center; gap: 12px; padding: 15px 14px; margin-bottom: 9px; border-radius: 13px; background: var(--card); border: 1px solid var(--cardline); }
+  .mini svg { width: 52px; height: 52px; flex: none; } .mini .t1 { font-size: 13px; color: var(--dim); } .mini .t2 { font: 700 18px Consolas, monospace; margin: 2px 0; } .mini .t3 { font-size: 11px; color: var(--dim); }
+
+  .click { cursor: pointer; transition: border-color .15s, filter .15s; } .click:hover { border-color: rgba(145,220,255,.6); filter: brightness(1.15); }
+  .toast { position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; background: #121c3e; border: 1px solid var(--line); font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .foot { position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; font-size: 10px; color: #687497; letter-spacing: .18em; } .foot b { color: var(--violet); }
+</style>
+</head>
+<body>
+<div id="stage">
+<canvas id="fx" width="1360" height="1300"></canvas>
+
+<div class="brand"><div class="sigil"></div><div><div class="overline">SYSTEM MONITORING</div><b>AI Control Center</b></div></div>
+<div class="clock" id="clock"><div class="ctime mono">--:--<span>:--</span></div><div class="cdate mono">—</div></div>
+<div class="live mono" id="live"><i></i><span>connecting…</span></div>
+
+<!-- left -->
+<div class="col left">
+  <div class="title mono"><i></i>SERVICES</div>
+  <div id="services"></div>
+  <div class="title mono"><i></i>QUEUE · LOCAL AI JOBS</div>
+  <div id="queue"></div>
+</div>
+
+<!-- center -->
+<div class="stat s-vram" id="vram"><div class="v">—</div><div class="k mono">VRAM</div><div class="sbar"><i></i></div></div>
+<div class="stat s-temp" id="temp"><div class="v">—</div><div class="k mono">GPU TEMP</div><div class="sbar"><i></i></div></div>
+<div class="center">
+  <div class="core"></div>
+  <svg viewBox="0 0 560 560">
+    <defs>
+      <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <linearGradient id="load" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b9a7ff"/><stop offset=".5" stop-color="#91dcff"/><stop offset="1" stop-color="#ffc875"/></linearGradient>
+    </defs>
+    <g class="spin"><circle cx="280" cy="280" r="262" fill="none" stroke="rgba(185,167,255,.3)" stroke-width="1" stroke-dasharray="2 9"/></g>
+    <g class="spin2"><circle cx="280" cy="280" r="240" fill="none" stroke="rgba(145,220,255,.25)" stroke-width="1.4" stroke-dasharray="60 18 4 18"/></g>
+    <circle cx="280" cy="280" r="218" fill="none" stroke="rgba(145,220,255,.14)" stroke-width="1"/>
+    <circle cx="280" cy="280" r="190" fill="none" stroke="rgba(145,220,255,.11)" stroke-width="18"/>
+    <circle id="arc" cx="280" cy="280" r="190" fill="none" stroke="url(#load)" stroke-width="18" stroke-linecap="round" stroke-dasharray="0 1193.8" transform="rotate(-90 280 280)" filter="url(#glow)"/>
+    <circle cx="280" cy="280" r="164" fill="none" stroke="rgba(185,167,255,.32)" stroke-width="1.2"/>
+    <g fill="#8995b7" font-size="11" font-family="Consolas" text-anchor="middle"><text x="280" y="70">0</text><text x="494" y="284">25</text><text x="280" y="500">50</text><text x="66" y="284">75</text></g>
+  </svg>
+  <div class="readout">
+    <div class="kind mono" id="kind">—</div>
+    <div class="pct" id="pct">—<small>%</small></div>
+    <div class="lbl mono">GPU UTILIZATION</div>
+    <div class="job" id="job">—</div>
+    <div class="eta mono" id="eta"></div>
+  </div>
+</div>
+<div class="wave card">
+  <div class="whead mono"><span>GPU · LAST 10 MIN</span><b id="wlive">—</b></div>
+  <svg viewBox="0 0 520 64" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="wf" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#b9a7ff" stop-opacity=".42"/><stop offset="1" stop-color="#91dcff" stop-opacity="0"/></linearGradient>
+      <linearGradient id="ws" x1="0" x2="1"><stop offset="0" stop-color="#b9a7ff"/><stop offset=".6" stop-color="#91dcff"/><stop offset="1" stop-color="#ffc875"/></linearGradient>
+    </defs>
+    <g stroke="rgba(157,191,255,.09)"><path d="M0 16H520M0 32H520M0 48H520"/><path d="M65 0V64M130 0V64M195 0V64M260 0V64M325 0V64M390 0V64M455 0V64"/></g>
+    <path id="wfill" d="" fill="url(#wf)"/><path id="wline" d="" fill="none" stroke="url(#ws)" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
+  </svg>
+</div>
+<div class="ram card" id="ram">
+  <div class="rh"><span class="mono">RAM</span><b id="ramv">—</b><em id="ramp">—</em></div>
+  <div class="rbar"><i id="rambar"></i><span class="tick t70"></span><span class="tick t90"></span></div>
+  <div class="rf mono"><span>system memory</span><span>70% amber · 90% red</span></div>
+</div>
+
+<!-- right -->
+<div class="col right">
+  <div class="title mono"><i></i>USAGE · SUBSCRIPTIONS</div>
+  <div id="usage"></div>
+  <div class="sub click" id="suno" data-link="suno" title="Click to open Suno · type a number + Enter to note your remaining downloads">
+    <div class="h" style="align-items:center"><span>Suno<span class="pl">manual note</span></span><span class="dl">downloads left<input id="sunoDl" class="num" value="00" maxlength="4" spellcheck="false"></span></div>
+  </div>
+  <div class="title mono"><i></i>CLAUDE CODE · SESSIONS</div>
+  <div class="sess" id="sess"></div>
+  <div class="legend"><span>working</span><span>idle</span><span class="hotlg" id="hotlg">context ≥ 80%</span></div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="foot mono"><b>AI CONTROL CENTER</b> · <span id="footnote">local only</span></div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  // ---- thresholds (edit freely, or ask your AI to make them configurable)
+  const TH = { tempWarn: 75, tempBad: 83, tempMax: 95, vramWarn: 75, vramBad: 90, ramWarn: 70, ramBad: 90 };
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const pad = n => String(n).padStart(2, "0");
+  const hm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const when = v => {
+    if (v == null || v === "") return "—";
+    const d = typeof v === "number" ? new Date(v < 1e12 ? v * 1000 : v) : new Date(v);
+    if (isNaN(d)) return "—";
+    return d.toDateString() === new Date().toDateString() ? hm(d) : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm(d)}`;
+  };
+  const mmss = s => s == null ? "—" : `${Math.floor(s / 60)}:${pad(Math.floor(s % 60))}`;
+  const fit = () => $("#stage").style.setProperty("--s", Math.min(1.5, innerWidth / 1360, innerHeight / 1300));
+  fit(); addEventListener("resize", fit);
+
+  const BRIDGE = location.protocol.startsWith("http");   // opened from disk = no live data
+  // each feed has its own "last good" time; a feed older than its limit is dropped so stale numbers never look live
+  let st = null, gpu = null, stOk = 0, gpuOk = 0;
+  const ST_MAX = 10000, GPU_MAX = 5000, USAGE_STALE_MIN = 15;
+  const stale = it => it && it.at && Date.now() / 1000 - it.at > USAGE_STALE_MIN * 60;
+  const staleNote = it => it && (it.ok === false || stale(it)) ? `<div class="na">stale${it.at ? " · last read " + when(it.at) : ""}${it.error ? " · " + esc(it.error) : ""}</div>` : "";
+  const row = (lv, name, sub, val) => `<div class="row ${lv}"><i class="st"></i><div class="n">${esc(name)}<small>${esc(sub)}</small></div><div class="val">${esc(val)}</div></div>`;
+  const ring = (frac, color) => `<svg viewBox="0 0 54 54"><circle cx="27" cy="27" r="22" fill="none" stroke="rgba(145,220,255,.13)" stroke-width="5"/><circle cx="27" cy="27" r="22" fill="none" stroke="${color}" stroke-width="5" stroke-dasharray="${(138.2 * Math.max(0, Math.min(1, frac))).toFixed(1)} 138.2" transform="rotate(-90 27 27)" stroke-linecap="round"/></svg>`;
+  const setStat = (el, html, pct, lv) => { el.querySelector(".v").innerHTML = html; el.querySelector(".sbar i").style.width = Math.max(0, Math.min(100, pct)) + "%"; el.className = el.className.replace(/ (warn|bad)/g, "") + (lv ? " " + lv : ""); };
+
+  function renderLeft() {
+    const ok = Date.now() - stOk < ST_MAX;
+    const c = st?.comfyui;
+    let h = ok ? "" : row("bad", "Bridge", BRIDGE ? location.host : "open via bridge.py for live data", "offline");
+    h += !st ? row("off", "ComfyUI", "waiting for bridge", "—") : !c ? row("off", "ComfyUI", "not configured", "—") : c.ok ? row("", "ComfyUI", "queue API", "online") : row("off", "ComfyUI", "not reachable", "offline");
+    const pm = c?.process;   // ComfyUI process memory + uptime (restart it when it keeps growing)
+    if (pm) {
+      const up = pm.started ? (Date.now() / 1000 - pm.started) / 60 : null;
+      h += row(pm.mem_gb >= pm.bad_gb ? "bad" : pm.mem_gb >= pm.warn_gb ? "warn" : "", "ComfyUI memory", `${up != null ? `up ${Math.floor(up / 60)}h ${Math.floor(up % 60)}m · ` : ""}limit ${pm.bad_gb} GB`, `${pm.mem_gb} GB`);
+    }
+    for (const p of (st?.processes || []).filter(p => p.kind === "service")) h += row(p.running ? "" : "bad", p.name, "process", p.running ? "running" : "stopped");
+    for (const s of st?.services || []) h += row(s.ok ? "" : "bad", s.name, `${s.ms} ms`, s.ok ? "online" : "down");
+    const rp = st?.remote_pc;
+    if (rp) h += row(rp.ok ? "" : "off", rp.name, rp.ok ? `reachable · ${rp.ms} ms` : "no response", rp.ok ? "online" : "offline");
+    const bk = st?.backup;
+    if (bk) h += row(bk.ok ? "" : bk.last ? "warn" : "bad", bk.name, bk.last ? `last ${when(bk.last)}` : esc(bk.error || "—"), bk.ok ? "ok" : "stale");
+    const vm = st?.vmem;   // only shown when it is getting dangerous
+    if (vm?.risk) h += row("bad", "Virtual memory", `commit ${vm.used_gb} / ${vm.limit_gb} GB · pagefile ${vm.pagefile_gb ?? "—"} GB`, "check");
+    $("#services").innerHTML = h;
+    const run = c?.ok ? c.running : null, pend = c?.ok ? c.pending : null;
+    let q = `<div class="mini">${ring(((run || 0) + (pend || 0)) / 3, "#b9a7ff")}<div><div class="t1">ComfyUI queue</div><div class="t2">${run == null ? "—" : `running ${run} · pending ${pend}`}</div><div class="t3">${c?.ok ? (run ? "job in progress" : "idle") : "not available"}</div></div></div>`;
+    for (const p of (st?.processes || []).filter(p => p.kind === "job"))
+      q += `<div class="mini">${ring(p.running ? .6 : 0, "#6ee8bd")}<div><div class="t1">${esc(p.name)}</div><div class="t2">${p.running ? "running" : "idle"}</div><div class="t3">${p.running && p.since ? `for ${mmss(Date.now() / 1000 - p.since)}` : "local process"}</div></div></div>`;
+    $("#queue").innerHTML = q;
+  }
+
+  function renderUsage() {
+    const u = st?.usage || {}, links = st?.links || {};
+    let h = "";
+    const cl = u.claude;
+    h += `<div class="sub"><div class="h"><span>Claude<span class="pl">plan usage</span></span></div>`;
+    if (!st) h += `<div class="na">waiting for bridge</div>`;
+    else if (!cl) h += `<div class="na">not enabled · set "claude_usage": true in config.json</div>`;
+    else if (!cl.ok && !cl.windows) h += `<div class="na">${esc(cl.error || "unavailable")}</div>`;
+    else h += `<div class="${cl.windows.length > 1 ? "two" : ""}">${cl.windows.map((w, i) => `<div><div class="f"><span>${esc(w.label)}</span><b>${w.percent}%</b></div><div class="bar"><i class="${i ? "gold" : ""}${w.percent >= 90 ? " red" : ""}" style="width:${w.percent}%"></i></div><div class="f"><span>resets</span><span>${when(w.resets_at)}</span></div></div>`).join("")}</div>${staleNote(cl)}`;
+    h += `</div>`;
+    const cr = cl?.credit;   // Claude cloud-session credit, when the usage source provides it
+    if (cr) {
+      const left = cr.remaining, lp = cr.limit ? left / cr.limit * 100 : 0;
+      h += `<div class="sub"><div class="h"><span>Claude cloud credit</span><b>$${Math.round(left)}</b></div><div class="bar"><i class="${lp < 15 ? "red" : ""}" style="width:${Math.min(100, lp)}%"></i></div><div class="f"><span>left / $${cr.limit}</span><span>resets ${when(cr.resets_at)}</span></div></div>`;
+    }
+    const cx = u.codex, cw = [cx?.primary, cx?.secondary].filter(w => w && w.used_percent != null);   // Codex can report two windows (e.g. 5h + week)
+    const wl = w => w.window_minutes >= 10000 ? "week" : w.window_minutes ? Math.round(w.window_minutes / 60) + "h" : "";
+    h += `<div class="sub"><div class="h"><span>Codex<span class="pl">${esc(cx?.plan || "")}</span></span>${cw.length === 1 ? `<b>${cw[0].used_percent}%</b>` : ""}</div>`;
+    h += cw.length ? `<div class="${cw.length > 1 ? "two" : ""}">${cw.map((w, i) => `<div>${cw.length > 1 ? `<div class="f"><span>${wl(w)}</span><b>${w.used_percent}%</b></div>` : ""}<div class="bar"><i class="${i ? "gold" : ""}${w.used_percent >= 90 ? " red" : ""}" style="width:${Math.min(100, w.used_percent)}%"></i></div><div class="f"><span>${cw.length > 1 ? "resets" : wl(w)}</span><span>${cw.length > 1 ? "" : "resets "}${when(w.resets_at)}</span></div></div>`).join("")}</div>${staleNote(cx)}`
+      : `<div class="na">${esc(!st ? "waiting for bridge" : cx ? cx.error || "unavailable" : "not enabled")}</div>`;
+    h += `</div>`;
+    const el = u.elevenlabs;
+    if (el) {
+      const pct = el.limit ? Math.round(el.used / el.limit * 100) : null;
+      h += `<div class="sub click" data-link="elevenlabs" title="Click to open ElevenLabs"><div class="h"><span>ElevenLabs<span class="pl">${esc(el.tier || "")}</span></span><b>${pct ?? "—"}${pct != null ? "%" : ""}</b></div>`
+        + (pct != null ? `<div class="bar"><i class="gold${pct >= 90 ? " red" : ""}" style="width:${pct}%"></i></div><div class="f"><span>${(el.used / 1000).toFixed(1)}k / ${(el.limit / 1000).toFixed(1)}k chars</span><span>resets ${when(el.reset_at)}</span></div>${staleNote(el)}` : `<div class="na">${esc(el.error || "unavailable")}</div>`) + `</div>`;
+    }
+    $("#usage").innerHTML = h;
+    $("#suno").dataset.href = links.suno || "https://suno.com/";
+    document.querySelectorAll("[data-link=elevenlabs]").forEach(e => e.dataset.href = links.elevenlabs || "https://elevenlabs.io/");
+  }
+
+  function renderSessions() {
+    const s = st?.sessions;
+    const alert = +(new URLSearchParams(location.search).get("alert") || window.ACC_ALERT || s?.alert_pct || 80);   // ?alert=60 = try another threshold
+    $("#hotlg").textContent = `context ≥ ${alert}%`;
+    if (!s) { $("#sess").innerHTML = `<div class="empty">waiting for bridge</div>`; return; }
+    if (!s.ok) { $("#sess").innerHTML = `<div class="empty">${esc(s.error)}</div>`; return; }
+    if (!s.items.length) { $("#sess").innerHTML = `<div class="empty">no open Claude Code sessions</div>`; return; }
+    $("#sess").innerHTML = s.items.map(it => {
+      const hot = it.ctx_pct != null && it.ctx_pct >= alert;
+      const tip = `${it.title} · ${it.ctx_used ? it.ctx_used.toLocaleString() + " / " + s.window.toLocaleString() + " tokens" : "no usage yet"}${it.model ? " · " + it.model : ""}${it.openable ? " — click to open" : ""}`;
+      return `<div class="s1${it.openable ? " click" : ""}${hot ? " hot" : ""}" data-key="${esc(it.key)}" title="${esc(tip)}"><i class="dot ${it.state === "working" ? "work" : ""}"></i><span class="nm">${esc(it.title)}</span><span class="c">${it.ctx_pct != null ? Math.round(it.ctx_pct) + "%" : "—"}</span></div>`;
+    }).join("");
+  }
+
+  function renderCenter() {
+    const g = gpu, util = g?.util;
+    $("#pct").innerHTML = `${util ?? "—"}<small>%</small>`;
+    $("#arc").setAttribute("stroke-dasharray", `${(1193.8 * (util || 0) / 100).toFixed(1)} 1193.8`);
+    $("#wlive").textContent = util != null ? `LIVE ${util}%` : "no data";
+    const c = st?.comfyui, job = c?.ok ? c.job : null;
+    const KIND = { video: "▶ Generating video", image: "▶ Generating image", upscale: "▶ Upscaling", other: "▶ ComfyUI running" };
+    const topaz = (st?.processes || []).find(p => p.kind === "job" && p.running);
+    $("#kind").textContent = job ? KIND[job.kind] || KIND.other : topaz ? `▶ ${topaz.name}` : c?.ok ? "■ idle" : "■ no job info";
+    $("#kind").classList.toggle("idle", !job && !topaz);
+    $("#job").textContent = !st ? "—" : job ? [job.name, job.kind !== "other" ? job.kind : null, job.mp ? job.mp + " MP" : null].filter(Boolean).join(" · ") || "job"
+      : c?.ok && c.pending ? `${c.pending} pending` : "queue empty";
+    if (job && job.started) {
+      const el = Date.now() / 1000 - job.started, typ = job.typical_sec, n = job.samples || 0, end = typ ? new Date((job.started + typ) * 1000) : null;
+      $("#eta").innerHTML = `elapsed ${mmss(el)}${typ ? ` · typical ${mmss(typ)} (${n} run${n === 1 ? "" : "s"}) · ends <b style="color:${el > typ ? "var(--bad)" : "var(--ice)"}">${hm(end)}</b>` : ""}`;
+    } else $("#eta").textContent = "";
+    if (g?.fresh && g.vram_total) { const p = g.vram_used / g.vram_total * 100; setStat($("#vram"), `${g.vram_used.toFixed(1)} <span>/ ${Math.round(g.vram_total)} GB</span>`, p, p >= TH.vramBad ? "bad" : p >= TH.vramWarn ? "warn" : ""); }
+    else setStat($("#vram"), "—", 0, "");
+    const t = g?.temp;
+    setStat($("#temp"), t != null ? `${t}°C` : "—", t != null ? t / TH.tempMax * 100 : 0, t == null ? "" : t >= TH.tempBad ? "bad" : t >= TH.tempWarn ? "warn" : "");
+    const hist = g?.hist || [], now = Date.now() / 1000;
+    const pts = hist.filter(([ts]) => now - ts <= 600).map(([ts, u]) => [520 - (now - ts) / 600 * 520, 61 - Math.max(0, Math.min(100, u)) * .58]);
+    if (pts.length < 2) { $("#wline").setAttribute("d", ""); $("#wfill").setAttribute("d", ""); }
+    else {
+      const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+      $("#wline").setAttribute("d", line); $("#wfill").setAttribute("d", `${line} L${pts[pts.length - 1][0].toFixed(1)} 64 L${pts[0][0].toFixed(1)} 64 Z`);
+    }
+    const r = g?.ram || st?.ram;
+    if (!r?.total_gb) { $("#ramv").textContent = "—"; $("#ramp").textContent = "—"; $("#rambar").style.width = "0"; $("#ram").className = "ram card"; }
+    else {
+      $("#ramv").innerHTML = `${r.used_gb} <small>/ ${Math.round(r.total_gb)} GB</small>`; $("#ramp").textContent = r.pct + "%"; $("#rambar").style.width = r.pct + "%";
+      $("#ram").className = "ram card" + (r.pct >= TH.ramBad ? " bad" : r.pct >= TH.ramWarn ? " warn" : "");
+    }
+  }
+
+  function renderLive() {
+    const sOk = Date.now() - stOk < ST_MAX, gOk = Date.now() - gpuOk < GPU_MAX, d = new Date();
+    $("#live").classList.toggle("off", !(sOk && gOk));
+    $("#live span").textContent = !BRIDGE ? "no bridge · run python bridge.py" : sOk && gOk ? `LIVE · ${hm(d)}:${pad(d.getSeconds())}`
+      : sOk || gOk ? `partial · ${sOk ? "GPU" : "status"} feed lost` : "bridge not responding";
+  }
+
+  const getJ = u => fetch(u, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject(r.status));
+  async function pullStatus() {
+    if (BRIDGE) try { st = await getJ("api/status"); stOk = Date.now(); } catch { if (Date.now() - stOk > ST_MAX) st = null; }
+    renderLeft(); renderUsage(); renderSessions(); renderCenter();
+  }
+  async function pullGpu() {
+    if (BRIDGE) try { gpu = await getJ("api/gpu"); gpuOk = Date.now(); } catch { if (Date.now() - gpuOk > GPU_MAX) gpu = null; }
+    renderCenter(); renderLive();
+  }
+  // ---- boot sound when the dashboard starts (or is refreshed). If the browser blocks autoplay, it plays on the first click / key.
+  // Turn off: localStorage "acc.bootSound" = "0" · volume: "acc.bootVol" (default 0.5)
+  (() => {
+    let vol = 0.5;
+    try { if (localStorage.getItem("acc.bootSound") === "0") return; vol = +(localStorage.getItem("acc.bootVol") || 0.5); } catch {}
+    const a = new Audio("assets/sfx/boot.wav"); a.volume = vol;
+    a.play().catch(() => {
+      const once = () => { removeEventListener("pointerdown", once, true); removeEventListener("keydown", once, true); a.play().catch(() => {}); };
+      addEventListener("pointerdown", once, true); addEventListener("keydown", once, true);
+    });
+  })();
+
+  const clock = () => { const d = new Date(); $("#clock .ctime").innerHTML = `${hm(d)}<span>:${pad(d.getSeconds())}</span>`;
+    $("#clock .cdate").textContent = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${d.toLocaleDateString(undefined, { weekday: "short" })}`; };
+  clock(); pullStatus(); pullGpu();
+  setInterval(clock, 1000); setInterval(pullGpu, 1000); setInterval(pullStatus, 3000);
+
+  // ---- clicks: session card = open that conversation in the Claude desktop app, service cards = open the site
+  let toastT = 0;
+  const toast = m => { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2200); };
+  $("#stage").addEventListener("click", async e => {
+    if (e.target.closest("input")) return;
+    const s = e.target.closest(".s1.click"), l = e.target.closest("[data-link]");
+    if (s) {
+      try {
+        const r = await (await fetch("api/open-session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: s.dataset.key }) })).json();
+        toast(r.error || "opened in Claude");
+      } catch { toast("bridge not reachable"); }
+    } else if (l && l.dataset.href) window.open(l.dataset.href, "_blank", "noopener");
+  });
+
+  // ---- Suno: no public usage API, so it is a manual note (type a number + Enter)
+  const sun = $("#sunoDl"), KEY = "acc.sunoDl";
+  try { const v = localStorage.getItem(KEY); if (v !== null) sun.value = v; } catch {}
+  sun.addEventListener("focus", () => sun.select());
+  sun.addEventListener("keydown", e => {
+    if (e.key === "Enter") { const v = (sun.value.match(/\d+/) || ["0"])[0].padStart(2, "0"); sun.value = v; try { localStorage.setItem(KEY, v); } catch {} sun.blur(); }
+    if (e.key === "Escape") { try { sun.value = localStorage.getItem(KEY) || "00"; } catch {} sun.blur(); }
+  });
+
+  // ---- animated background: light streams flowing into the GPU ring. 30 fps cap, paused when the tab is hidden
+  (() => {
+    const cv = $("#fx"), g = cv.getContext("2d"), W = 1360, H = 1300, CX = 680, CY = 570, R = 215;
+    const rnd = (a, b) => a + Math.random() * (b - a), COL = ["145,220,255", "185,167,255", "110,200,255"];
+    const streams = Array.from({ length: 18 }, (_, i) => {
+      const sx = i % 2 ? rnd(1240, 1400) : rnd(-40, 120), sy = rnd(60, 1260), ang = Math.atan2(sy - CY, sx - CX) + rnd(-.35, .35);
+      const ex = CX + Math.cos(ang) * R, ey = CY + Math.sin(ang) * R;
+      return { sx, sy, ex, ey, cx: (sx + ex) / 2 + rnd(-160, 160), cy: (sy + ey) / 2 + rnd(-220, 220), col: COL[i % 3], a: rnd(.22, .42), w: rnd(1, 2), t: Math.random(), v: rnd(.0015, .004) };
+    });
+    const bez = (s, t) => { const u = 1 - t; return [u * u * s.sx + 2 * u * t * s.cx + t * t * s.ex, u * u * s.sy + 2 * u * t * s.cy + t * t * s.ey]; };
+    const stars = Array.from({ length: 140 }, () => ({ x: rnd(0, W), y: rnd(0, H), r: rnd(.4, 1.5), vx: rnd(-.06, .06), vy: rnd(-.12, -.02), ph: rnd(0, 6.28), col: COL[Math.floor(rnd(0, 3))] }));
+    const waves = []; let last = 0, tick = 0;
+    const frame = now => {
+      requestAnimationFrame(frame);
+      if (document.hidden || now - last < 33) return;
+      last = now; tick++; g.clearRect(0, 0, W, H);
+      const br = .5 + .5 * Math.sin(now / 2600), neb = g.createRadialGradient(CX, CY, 60, CX, CY, 620);
+      neb.addColorStop(0, `rgba(100,105,240,${.10 + .07 * br})`); neb.addColorStop(.5, `rgba(45,110,200,${.04 + .03 * br})`); neb.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = neb; g.fillRect(0, 0, W, H);
+      for (const s of stars) {
+        s.x += s.vx; s.y += s.vy; if (s.y < -4) { s.y = H + 4; s.x = rnd(0, W); } if (s.x < -4) s.x = W + 4; if (s.x > W + 4) s.x = -4;
+        g.fillStyle = `rgba(${s.col},${.55 * (.35 + .65 * (.5 + .5 * Math.sin(now / 700 + s.ph)))})`; g.beginPath(); g.arc(s.x, s.y, s.r, 0, 6.28); g.fill();
+      }
+      g.lineCap = "round";
+      for (const s of streams) {
+        g.beginPath(); g.moveTo(s.sx, s.sy); g.quadraticCurveTo(s.cx, s.cy, s.ex, s.ey);
+        g.strokeStyle = `rgba(${s.col},${s.a * .35 * (.7 + .3 * br)})`; g.lineWidth = s.w * 6; g.stroke();
+        g.strokeStyle = `rgba(${s.col},${s.a * (.8 + .2 * br)})`; g.lineWidth = s.w; g.stroke();
+        s.t += s.v; if (s.t > 1) s.t -= 1;
+        const [x, y] = bez(s, s.t), fade = Math.sin(s.t * Math.PI), gl = g.createRadialGradient(x, y, 0, x, y, 18);
+        gl.addColorStop(0, `rgba(255,255,255,${.95 * fade})`); gl.addColorStop(.25, `rgba(${s.col},${.8 * fade})`); gl.addColorStop(1, `rgba(${s.col},0)`);
+        g.fillStyle = gl; g.beginPath(); g.arc(x, y, 18, 0, 6.28); g.fill();
+        for (let k = 1; k <= 6; k++) { const [tx, ty] = bez(s, Math.max(0, s.t - k * .012)); g.fillStyle = `rgba(${s.col},${.45 * fade * (1 - k / 7)})`; g.beginPath(); g.arc(tx, ty, 2.2 - k * .25, 0, 6.28); g.fill(); }
+        g.fillStyle = `rgba(${s.col},${.35 + .3 * br})`; g.beginPath(); g.arc(s.sx, s.sy, 2.4, 0, 6.28); g.fill();
+      }
+      if (tick % 95 === 0) waves.push({ r: R, a: .35 });
+      for (let i = waves.length - 1; i >= 0; i--) { const w = waves[i]; w.r += 2.2; w.a *= .985; g.strokeStyle = `rgba(145,220,255,${w.a})`; g.lineWidth = 1.5; g.beginPath(); g.arc(CX, CY, w.r, 0, 6.28); g.stroke(); if (w.a < .02 || w.r > 700) waves.splice(i, 1); }
+    };
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body>
+</html>

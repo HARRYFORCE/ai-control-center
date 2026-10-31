@@ -1,0 +1,33 @@
+{
+  "port": 8790,
+  "context_window": 200000,
+  "context_alert_pct": 80,
+  "session_max_age_hours": 12,
+  "max_sessions": 8,
+
+  "comfyui_url": "http://127.0.0.1:8188",
+  "comfyui_mem_warn_gb": 32,
+  "comfyui_mem_bad_gb": 38,
+  "job_kinds": { "video": ["MyVideoNode"], "image": [], "upscale": [] },
+
+  "commit_margin_gb": 40,
+  "pagefile_warn_gb": 10,
+
+  "claude_usage": false,
+  "claude_usage_file": "",
+  "codex_usage": true,
+  "elevenlabs": true,
+
+  "services": [
+    { "name": "My web app", "url": "http://127.0.0.1:5000/" }
+  ],
+  "processes": [
+    { "name": "Watchdog script", "kind": "service", "process": "python", "cmd_contains": "watchdog.py" },
+    { "name": "Topaz upscale", "kind": "job", "process": "ffmpeg", "cmd_contains": "tvai" }
+  ],
+  "remote_pc": { "name": "Render PC", "host": "192.168.0.20", "port": 22 },
+  "backup": { "name": "Cloud backup", "path": "D:/backup/last_backup.log", "max_age_hours": 26 },
+
+  "session_aliases": {},
+  "links": { "suno": "https://suno.com/", "elevenlabs": "https://elevenlabs.io/app/home" }
+}

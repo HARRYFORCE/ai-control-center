@@ -1,0 +1,17 @@
+# personal settings (may contain paths, aliases, service URLs)
+config.json
+.env
+.env.*
+*.key
+*.token
+# python
+__pycache__/
+*.pyc
+# logs, temp, backups
+*.log
+*.tmp
+*.bak
+*.before_*
+
+# bridge memory of how long ComfyUI jobs take
+.job_durations.json
